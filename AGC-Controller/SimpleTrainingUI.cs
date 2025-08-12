@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Linq;
+using Newtonsoft.Json;
 
 public class SimpleTrainingUI : MonoBehaviour
 {
@@ -26,6 +28,10 @@ public class SimpleTrainingUI : MonoBehaviour
     private GameObjectSequenceController sequenceController;
     private List<GameObject> stepUIItems = new List<GameObject>();
     
+    [Header("WiseTwin Integration")]
+    public bool useWiseTwinData = true;
+    private bool metadataLoaded = false;
+    
     public static SimpleTrainingUI Instance { get; private set; }
     
     [System.Serializable]
@@ -35,6 +41,13 @@ public class SimpleTrainingUI : MonoBehaviour
         public string instruction;
         public string objectName; // Nom de l'objet à cliquer dans la scène 3D
         public bool completed = false;
+        
+        // Données supplémentaires pour l'extension future
+        public string questionText;
+        public string[] questionOptions;
+        public int correctAnswer;
+        public string feedback;
+        public string incorrectFeedback;
     }
     
     private void Awake()
@@ -52,13 +65,22 @@ public class SimpleTrainingUI : MonoBehaviour
     private void Start()
     {
         InitializeUI();
-        LoadDefaultSteps();
-        CreateStepsList();
         
         sequenceController = FindFirstObjectByType<GameObjectSequenceController>();
         if (sequenceController == null)
         {
             Debug.LogWarning("GameObjectSequenceController non trouvé !");
+        }
+        
+        // Charger les données selon la configuration
+        if (useWiseTwinData)
+        {
+            LoadStepsFromWiseTwin();
+        }
+        else
+        {
+            LoadDefaultSteps();
+            CreateStepsList();
         }
     }
     
@@ -74,9 +96,114 @@ public class SimpleTrainingUI : MonoBehaviour
             trainingPanel.SetActive(false);
     }
     
+    private void LoadStepsFromWiseTwin()
+    {
+        Debug.Log("[SimpleTrainingUI] Tentative de chargement depuis WiseTwin...");
+        
+        if (MetadataLoader.Instance == null)
+        {
+            Debug.LogWarning("[SimpleTrainingUI] MetadataLoader.Instance non trouvé, retry dans 1s");
+            Invoke(nameof(RetryLoadStepsFromWiseTwin), 1f);
+            return;
+        }
+        
+        if (!MetadataLoader.Instance.IsLoaded)
+        {
+            Debug.Log("[SimpleTrainingUI] En attente du chargement des métadonnées...");
+            MetadataLoader.Instance.OnMetadataLoaded += OnWiseTwinDataLoaded;
+            MetadataLoader.Instance.OnLoadError += OnWiseTwinDataError;
+            return;
+        }
+        
+        ParseWiseTwinData();
+    }
+    
+    private void RetryLoadStepsFromWiseTwin()
+    {
+        if (!metadataLoaded)
+        {
+            LoadStepsFromWiseTwin();
+        }
+    }
+    
+    private void OnWiseTwinDataLoaded(System.Collections.Generic.Dictionary<string, object> metadata)
+    {
+        Debug.Log("[SimpleTrainingUI] Données WiseTwin reçues, parsing...");
+        ParseWiseTwinData();
+    }
+    
+    private void OnWiseTwinDataError(string error)
+    {
+        Debug.LogError($"[SimpleTrainingUI] Erreur chargement WiseTwin: {error}");
+        Debug.Log("[SimpleTrainingUI] Fallback vers les données par défaut");
+        LoadDefaultSteps();
+        CreateStepsList();
+    }
+    
+    private void ParseWiseTwinData()
+    {
+        try
+        {
+            var unityData = MetadataLoader.Instance.GetUnityData();
+            if (unityData == null || unityData.Count == 0)
+            {
+                Debug.LogWarning("[SimpleTrainingUI] Aucune donnée Unity trouvée, utilisation des données par défaut");
+                LoadDefaultSteps();
+                CreateStepsList();
+                return;
+            }
+            
+            trainingSteps.Clear();
+            
+            // Créer une liste temporaire pour trier par ordre
+            var tempSteps = new List<(TrainingStep step, int order)>();
+            
+            foreach (var kvp in unityData)
+            {
+                string objectId = kvp.Key;
+                var objectData = JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                    JsonConvert.SerializeObject(kvp.Value));
+                
+                if (objectData.ContainsKey("step_info"))
+                {
+                    var stepInfo = JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                        JsonConvert.SerializeObject(objectData["step_info"]));
+                    
+                    var step = new TrainingStep
+                    {
+                        title = stepInfo.ContainsKey("title") ? stepInfo["title"].ToString() : $"Étape {objectId}",
+                        instruction = stepInfo.ContainsKey("description") ? stepInfo["description"].ToString() : "Instruction non définie",
+                        objectName = objectId
+                    };
+                    
+                    int order = stepInfo.ContainsKey("order") ? int.Parse(stepInfo["order"].ToString()) : 999;
+                    tempSteps.Add((step, order));
+                }
+            }
+            
+            // Trier par ordre et ajouter à la liste finale
+            var sortedSteps = tempSteps.OrderBy(x => x.order).ToList();
+            foreach (var (step, _) in sortedSteps)
+            {
+                trainingSteps.Add(step);
+            }
+            
+            metadataLoaded = true;
+            CreateStepsList();
+            
+            Debug.Log($"[SimpleTrainingUI] {trainingSteps.Count} étapes chargées depuis WiseTwin");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[SimpleTrainingUI] Erreur parsing données WiseTwin: {e.Message}");
+            LoadDefaultSteps();
+            CreateStepsList();
+        }
+    }
+    
     private void LoadDefaultSteps()
     {
-        // Charger les étapes par défaut basées sur votre JSON
+        Debug.Log("[SimpleTrainingUI] Chargement des étapes par défaut (hardcode)");
         trainingSteps.Clear();
         trainingSteps.Add(new TrainingStep 
         { 
@@ -344,6 +471,18 @@ public class SimpleTrainingUI : MonoBehaviour
         if (sequenceController != null)
         {
             sequenceController.StopTutorial();
+        }
+    }
+    
+    private void OnDestroy()
+    {
+        CancelInvoke();
+        
+        // Nettoyer les événements WiseTwin
+        if (MetadataLoader.Instance != null)
+        {
+            MetadataLoader.Instance.OnMetadataLoaded -= OnWiseTwinDataLoaded;
+            MetadataLoader.Instance.OnLoadError -= OnWiseTwinDataError;
         }
     }
 }

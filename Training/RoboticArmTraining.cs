@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Linq;
+using Newtonsoft.Json;
 
 public class RoboticArmTraining : MonoBehaviour
 {
@@ -20,12 +22,24 @@ public class RoboticArmTraining : MonoBehaviour
     [Header("Training Configuration")]
     public List<TrainingStep> steps = new List<TrainingStep>();
     
+    [Header("WiseTwin Integration")]
+    public bool useWiseTwinData = true;
+    private bool metadataLoaded = false;
+    
     [System.Serializable]
     public class TrainingStep
     {
         public string description;
         public string targetObjectName; // Nom de l'objet à cliquer
         public bool completed = false;
+        
+        // Données supplémentaires pour l'extension future
+        public string title;
+        public string questionText;
+        public string[] questionOptions;
+        public int correctAnswer;
+        public string feedback;
+        public string incorrectFeedback;
     }
     
     private int currentStepIndex = 0;
@@ -49,19 +63,173 @@ public class RoboticArmTraining : MonoBehaviour
     
     void Start()
     {
-        InitializeSteps();
-        SetupUI();
-        
         // Trouver le contrôleur de séquence
         sequenceController = FindFirstObjectByType<GameObjectSequenceController>();
         
         // Cacher l'UI au début
         if (trainingPanel != null)
             trainingPanel.SetActive(false);
+        
+        // Charger les données selon la configuration
+        if (useWiseTwinData)
+        {
+            LoadStepsFromWiseTwin();
+        }
+        else
+        {
+            InitializeSteps();
+            SetupUI();
+        }
+    }
+    
+    private void LoadStepsFromWiseTwin()
+    {
+        Debug.Log("[RoboticArmTraining] Tentative de chargement depuis WiseTwin...");
+        
+        if (MetadataLoader.Instance == null)
+        {
+            Debug.LogWarning("[RoboticArmTraining] MetadataLoader.Instance non trouvé, retry dans 1s");
+            Invoke(nameof(RetryLoadStepsFromWiseTwin), 1f);
+            return;
+        }
+        
+        if (!MetadataLoader.Instance.IsLoaded)
+        {
+            Debug.Log("[RoboticArmTraining] En attente du chargement des métadonnées...");
+            MetadataLoader.Instance.OnMetadataLoaded += OnWiseTwinDataLoaded;
+            MetadataLoader.Instance.OnLoadError += OnWiseTwinDataError;
+            return;
+        }
+        
+        ParseWiseTwinData();
+    }
+    
+    private void RetryLoadStepsFromWiseTwin()
+    {
+        if (!metadataLoaded)
+        {
+            LoadStepsFromWiseTwin();
+        }
+    }
+    
+    private void OnWiseTwinDataLoaded(System.Collections.Generic.Dictionary<string, object> metadata)
+    {
+        Debug.Log("[RoboticArmTraining] Données WiseTwin reçues, parsing...");
+        ParseWiseTwinData();
+    }
+    
+    private void OnWiseTwinDataError(string error)
+    {
+        Debug.LogError($"[RoboticArmTraining] Erreur chargement WiseTwin: {error}");
+        Debug.Log("[RoboticArmTraining] Fallback vers les données par défaut");
+        InitializeSteps();
+        SetupUI();
+    }
+    
+    private void ParseWiseTwinData()
+    {
+        try
+        {
+            var unityData = MetadataLoader.Instance.GetUnityData();
+            Debug.Log($"[RoboticArmTraining] Unity data keys: {(unityData != null ? string.Join(", ", unityData.Keys) : "null")}");
+            
+            if (unityData == null || unityData.Count == 0)
+            {
+                Debug.LogWarning("[RoboticArmTraining] Aucune donnée Unity trouvée, utilisation des données par défaut");
+                InitializeSteps();
+                SetupUI();
+                return;
+            }
+            
+            steps.Clear();
+            
+            // Créer une liste temporaire pour trier par ordre
+            var tempSteps = new List<(TrainingStep step, int order)>();
+            
+            foreach (var kvp in unityData)
+            {
+                string objectId = kvp.Key;
+                Debug.Log($"[RoboticArmTraining] Processing object: {objectId}");
+                
+                var objectData = JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                    JsonConvert.SerializeObject(kvp.Value));
+                
+                if (objectData.ContainsKey("step_info"))
+                {
+                    var stepInfo = JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                        JsonConvert.SerializeObject(objectData["step_info"]));
+                    
+                    var step = new TrainingStep
+                    {
+                        title = stepInfo.ContainsKey("title") ? stepInfo["title"].ToString() : $"Étape {objectId}",
+                        description = stepInfo.ContainsKey("description") ? stepInfo["description"].ToString() : "Instruction non définie",
+                        targetObjectName = objectId
+                    };
+                    
+                    // Charger les questions si disponibles
+                    if (objectData.ContainsKey("question_1"))
+                    {
+                        var questionData = JsonConvert.DeserializeObject<Dictionary<string, object>>(
+                            JsonConvert.SerializeObject(objectData["question_1"]));
+                        
+                        step.questionText = questionData.ContainsKey("text") ? questionData["text"].ToString() : "";
+                        step.feedback = questionData.ContainsKey("feedback") ? questionData["feedback"].ToString() : "";
+                        step.incorrectFeedback = questionData.ContainsKey("incorrectFeedback") ? questionData["incorrectFeedback"].ToString() : "";
+                        
+                        if (questionData.ContainsKey("options"))
+                        {
+                            var optionsJson = JsonConvert.SerializeObject(questionData["options"]);
+                            step.questionOptions = JsonConvert.DeserializeObject<string[]>(optionsJson);
+                        }
+                        
+                        if (questionData.ContainsKey("correctAnswer"))
+                        {
+                            if (int.TryParse(questionData["correctAnswer"].ToString(), out int parsedCorrectAnswer))
+                            {
+                                step.correctAnswer = parsedCorrectAnswer;
+                            }
+                            else if (bool.TryParse(questionData["correctAnswer"].ToString(), out bool boolAnswer))
+                            {
+                                step.correctAnswer = boolAnswer ? 1 : 0;
+                            }
+                        }
+                    }
+                    
+                    int order = 999;
+                    if (stepInfo.ContainsKey("order"))
+                    {
+                        if (int.TryParse(stepInfo["order"].ToString(), out int parsedOrder))
+                        {
+                            order = parsedOrder;
+                        }
+                    }
+                    tempSteps.Add((step, order));
+                }
+            }
+            
+            // Trier par ordre et ajouter à la liste finale
+            var sortedSteps = tempSteps.OrderBy(x => x.order).ToList();
+            foreach (var (step, _) in sortedSteps)
+            {
+                steps.Add(step);
+            }
+            
+            metadataLoaded = true;
+            SetupUI();
+            
+            Debug.Log($"[RoboticArmTraining] {steps.Count} étapes chargées depuis WiseTwin");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[RoboticArmTraining] Erreur parsing données WiseTwin: {e.Message}");
+            InitializeSteps();
+            SetupUI();
+        }
     }
     
     void InitializeSteps()
     {
+        Debug.Log("[RoboticArmTraining] Chargement des étapes par défaut (hardcode)");
         // Définir les étapes de la formation LOTO
         steps.Clear();
         steps.Add(new TrainingStep { description = "Mettre le commutateur en manuel", targetObjectName = "commutateur" });
@@ -363,6 +531,18 @@ public class RoboticArmTraining : MonoBehaviour
         if (sequenceController != null)
         {
             sequenceController.StopTutorial();
+        }
+    }
+    
+    private void OnDestroy()
+    {
+        CancelInvoke();
+        
+        // Nettoyer les événements WiseTwin
+        if (MetadataLoader.Instance != null)
+        {
+            MetadataLoader.Instance.OnMetadataLoaded -= OnWiseTwinDataLoaded;
+            MetadataLoader.Instance.OnLoadError -= OnWiseTwinDataError;
         }
     }
 }
