@@ -16,15 +16,4 @@ public class ToggleCameraSwitcher : MonoBehaviour
         }
     }
 
-    public void ReceiveToggleChange(string toggleState)
-    {
-        // On interprète le clic comme un déclencheur d'action (pas de booléen)
-        Debug.Log("Clic reçu pour recentrer la caméra.");
-
-        // Si le GameObjectCameraManager est trouvé, on appelle le reset de caméra
-        if (cameraManager != null)
-        {
-            cameraManager.ResetCamera();
-        }
-    }
 }

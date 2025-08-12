@@ -26,7 +26,7 @@ public class TestButtonsSequence : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.T))
         {
             Debug.Log("Démarrage du tutoriel via la touche T");
-            sequenceController.StartTutorial();
+            sequenceController.StartTraining(); // CHANGÉ: StartTutorial() → StartTraining()
         }
         
         // Clics de test avec les touches numériques

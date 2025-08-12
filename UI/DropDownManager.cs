@@ -17,10 +17,9 @@ public class DropdownManager : MonoBehaviour
     public float outlineWidth = 5f;
 
     private GameObject currentlyHighlightedObject = null; // Variable pour l'objet actuellement surligné
-    private HighlightAndSend highlightAndSend;
+    // SUPPRIMÉ: private HighlightAndSend highlightAndSend;
 
     private BasicSelectionController selectionController; // Référence au contrôleur de sélection
-
 
     private void Start()
     {
@@ -30,9 +29,7 @@ public class DropdownManager : MonoBehaviour
         {
             Debug.LogError("BasicSelectionController n'est pas trouvé dans la scène.");
         }
-
     }
-
 
     // Méthode pour récupérer un CameraTargetItem basé sur l'outlineObject
     public CameraTargetItem GetCameraTargetItemByOutlineObject(GameObject outlineObject)
@@ -86,26 +83,25 @@ public class DropdownManager : MonoBehaviour
         cameraToMove.transform.rotation = targetRotation;
     }
 
-public void HighlightObject(GameObject outlineObject)
-{
-    if (outlineObject == null)
+    public void HighlightObject(GameObject outlineObject)
     {
-        Debug.LogError("Tentative d'ajouter un Outline sur un objet NULL !");
-        return;
+        if (outlineObject == null)
+        {
+            Debug.LogError("Tentative d'ajouter un Outline sur un objet NULL !");
+            return;
+        }
+
+        Outline outline = outlineObject.GetComponent<Outline>();
+        if (outline == null)
+        {
+            outline = outlineObject.AddComponent<Outline>();
+            outline.OutlineMode = Outline.Mode.OutlineAll;
+        }
+
+        outline.OutlineColor = outlineColor;
+        outline.OutlineWidth = outlineWidth;
+        outline.enabled = true;
     }
-
-    Outline outline = outlineObject.GetComponent<Outline>();
-    if (outline == null)
-    {
-        outline = outlineObject.AddComponent<Outline>();
-        outline.OutlineMode = Outline.Mode.OutlineAll;
-    }
-
-    outline.OutlineColor = outlineColor;
-    outline.OutlineWidth = outlineWidth;
-    outline.enabled = true;
-}
-
 
     public void DeselectObject(GameObject objectToDeselect)
     {

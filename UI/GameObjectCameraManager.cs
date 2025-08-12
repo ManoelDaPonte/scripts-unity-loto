@@ -34,56 +34,6 @@ public class GameObjectCameraManager : MonoBehaviour
         }
     }
 
-    // Méthode pour déplacer la caméra en fonction du Name
-    public void MoveCameraToTargetByName(string name)
-    {
-        //Debug.Log($"Received Name: {name}"); // Log du Name reçu pour le débogage
-
-        // Trouver le GameObject associé au Name reçu
-        GameObject targetGameObject = null;
-
-        foreach (var item in objectCameraPairs)
-        {
-            if (item.gameObject.name == name)
-            {
-                targetGameObject = item.gameObject;
-                break; // Quitter la boucle une fois le bon GameObject trouvé
-            }
-        }
-
-        if (targetGameObject != null)
-        {
-            Transform targetCameraTransform = objectCameraPairs.Find(item => item.gameObject == targetGameObject).cameraTarget;
-
-            if (targetCameraTransform != null)
-            {
-                //Debug.Log($"Moving camera to target for GameObject: {targetGameObject.name}"); // Log pour confirmation
-                
-                // Désélectionner l'objet actuellement surligné
-                if (currentlyHighlightedObject != null)
-                {
-                    DeselectObject(currentlyHighlightedObject);
-                }
-
-                // Surbrillance du nouvel objet
-                HighlightObject(targetGameObject, true);
-
-                // Déplacer la caméra vers la nouvelle cible
-                StartCoroutine(MoveCameraToTarget(targetCameraTransform));
-
-                // Stocker le nouvel objet surligné
-                currentlyHighlightedObject = targetGameObject;
-            }
-            else
-            {
-                Debug.LogWarning("Cible de caméra nulle pour le GameObject: " + targetGameObject.name);
-            }
-        }
-        else
-        {
-            Debug.LogWarning("Aucun GameObject trouvé avec le Name spécifié: " + name);
-        }
-    }
 
     public void ResetCamera()
     {

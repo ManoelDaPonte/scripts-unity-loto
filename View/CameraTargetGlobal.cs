@@ -32,8 +32,8 @@ public class CameraTargetGlobal : MonoBehaviour
     private GameObject currentlySelectedOutline; // Stocke l'outline de l'objet actuellement sélectionné
     private GameObject currentlyHoveredOutline; // Stocke l'outline de l'objet actuellement survolé
     
-    public GameObject sendSelectedObjectToUnity;
-    private HighlightAndSend highlightAndSend;  // Instance de HighlightAndSend
+    // SUPPRIMÉ: public GameObject sendSelectedObjectToUnity;
+    // SUPPRIMÉ: private HighlightAndSend highlightAndSend;
 
     void Start()
     {
@@ -57,20 +57,7 @@ public class CameraTargetGlobal : MonoBehaviour
             return;
         }
 
-        // Assure-toi que le GameObject est assigné avant de récupérer le script
-        if (sendSelectedObjectToUnity != null)
-        {
-            highlightAndSend = sendSelectedObjectToUnity.GetComponent<HighlightAndSend>();
-
-            if (highlightAndSend == null)
-            {
-                Debug.LogError("Le script HighlightAndSend n'est pas attaché à SendSelectedObjectToUnity !");
-            }
-        }
-        else
-        {
-            Debug.LogError("Le GameObject SendSelectedObjectToUnity n'est pas assigné dans l'inspecteur !");
-        }
+        // SUPPRIMÉ: Initialisation de HighlightAndSend
 
         List<CameraTargetItem> globalViewsItems = dropdownManager.globalViews;
         if (globalViewsItems == null || globalViewsItems.Count == 0)
@@ -170,22 +157,20 @@ public class CameraTargetGlobal : MonoBehaviour
     void Update()
     {
         if (activeCamera == null)
-            {
-                Debug.LogWarning("Aucune caméra active n'est définie !");
-                return;
-            }
+        {
+            Debug.LogWarning("Aucune caméra active n'est définie !");
+            return;
+        }
 
-            // Vérifier si la caméra a bougé
-            bool cameraMoved = activeCamera.transform.position != initialCameraPosition;
+        // Vérifier si la caméra a bougé
+        bool cameraMoved = activeCamera.transform.position != initialCameraPosition;
 
-            // Gérer la visibilité des icônes
-            foreach (var pinIconObject in pinIconToOutlineMap.Keys)
-            {
-                pinIconObject.SetActive(!cameraMoved);
-            }
+        // Gérer la visibilité des icônes
+        foreach (var pinIconObject in pinIconToOutlineMap.Keys)
+        {
+            pinIconObject.SetActive(!cameraMoved);
+        }
 
-
-        // Gestion des sprites face à la caméra
         // Gestion des sprites face à la caméra
         foreach (var pinIconObject in pinIconToOutlineMap.Keys)
         {
@@ -250,15 +235,8 @@ public class CameraTargetGlobal : MonoBehaviour
                         return;
                     }
 
-                    // Envoie les données de l'objet
-                    if (highlightAndSend != null)
-                    {
-                        highlightAndSend.SendSelectedGameObject(outlineObject);
-                    }
-                    else
-                    {
-                        Debug.LogError("highlightAndSend n'est pas défini !");
-                    }
+                    // SUPPRIMÉ: Envoi vers HighlightAndSend
+                    Debug.Log("Objet sélectionné : " + outlineObject.name);
 
                     CameraTargetItem cameraTargetItem = dropdownManager.GetCameraTargetItemByOutlineObject(outlineObject);
                     if (cameraTargetItem != null)
@@ -285,7 +263,6 @@ public class CameraTargetGlobal : MonoBehaviour
             }
         }
         
-
         // Si le raycast ne touche rien ou si on a cliqué ailleurs
         if (!anyIconHovered && Input.GetMouseButtonDown(0))
         {
@@ -315,7 +292,6 @@ public class CameraTargetGlobal : MonoBehaviour
 
     IEnumerator AnimateHover(GameObject pinIconObject, bool hovering)
     {
- 
         float time = 0f;
 
         // Définir la taille de départ et de fin pour le sprite

@@ -22,36 +22,35 @@ public class BasicSelectionController : MonoBehaviour
     private GameObject hoveredObject;           // Objet actuellement survolé
     private Outline hoverOutline;               // Référence à l'outline de l'objet survolé
 
-    private HighlightAndSend highlightAndSend;  // Instance de HighlightAndSend
+    // SUPPRIMÉ: private HighlightAndSend highlightAndSend;
 
-void Start()
-{
-    // Initialisation des références
-    cameraController = FindFirstObjectByType<CameraController>();
-    if (cameraController == null)
+    void Start()
     {
-        Debug.LogWarning("CameraController non trouvé dans la scène.");
-    }
+        // Initialisation des références
+        cameraController = FindFirstObjectByType<CameraController>();
+        if (cameraController == null)
+        {
+            Debug.LogWarning("CameraController non trouvé dans la scène.");
+        }
 
-    dropdownManager = FindFirstObjectByType<DropdownManager>();
-    if (dropdownManager == null)
-    {
-        Debug.LogWarning("DropdownManager non trouvé dans la scène.");
-    }
+        dropdownManager = FindFirstObjectByType<DropdownManager>();
+        if (dropdownManager == null)
+        {
+            Debug.LogWarning("DropdownManager non trouvé dans la scène.");
+        }
 
-    // Correction: Utilisation de AddComponent au lieu de new
-    highlightAndSend = gameObject.AddComponent<HighlightAndSend>();
+        // SUPPRIMÉ: Création de HighlightAndSend
 
-    // Assigner Camera.main si aucune caméra n'a été assignée manuellement
-    if (mainCamera == null)
-    {
-        mainCamera = Camera.main;
+        // Assigner Camera.main si aucune caméra n'a été assignée manuellement
         if (mainCamera == null)
         {
-            Debug.LogError("Aucune caméra principale (MainCamera) trouvée et aucune caméra assignée manuellement.");
+            mainCamera = Camera.main;
+            if (mainCamera == null)
+            {
+                Debug.LogError("Aucune caméra principale (MainCamera) trouvée et aucune caméra assignée manuellement.");
+            }
         }
     }
-}
 
     void Update()
     {
@@ -121,8 +120,8 @@ void Start()
         currentOutline = selectedObject.GetComponent<Outline>() ?? selectedObject.AddComponent<Outline>();
         ConfigureOutline(currentOutline, selectionColor, outlineWidth);
 
-        // Envoyer l'objet sélectionné à HighlightAndSend
-        highlightAndSend.SendSelectedGameObject(selectedObject);
+        // SUPPRIMÉ: Envoi vers HighlightAndSend
+        Debug.Log("Objet sélectionné : " + selectedObject.name);
 
         Debug.Log("Outline activé pour : " + selectedObject.name);
     }

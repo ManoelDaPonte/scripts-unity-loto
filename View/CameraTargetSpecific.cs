@@ -45,8 +45,8 @@ public class CameraTargetSpecific : MonoBehaviour
     // Ajout d'un dictionnaire pour mapper chaque pin-icon à son outlineObject
     private Dictionary<GameObject, GameObject> pinIconToOutlineMap = new Dictionary<GameObject, GameObject>();
 
-    public GameObject sendSelectedObjectToUnity;
-    private HighlightAndSend highlightAndSend;  // Instance de HighlightAndSend
+    // SUPPRIMÉ: public GameObject sendSelectedObjectToUnity;
+    // SUPPRIMÉ: private HighlightAndSend highlightAndSend;
 
     void Start()
     {
@@ -66,20 +66,7 @@ public class CameraTargetSpecific : MonoBehaviour
             }
         }
 
-        // Assure-toi que le GameObject est assigné avant de récupérer le script
-        if (sendSelectedObjectToUnity != null)
-        {
-            highlightAndSend = sendSelectedObjectToUnity.GetComponent<HighlightAndSend>();
-
-            if (highlightAndSend == null)
-            {
-                Debug.LogError("Le script HighlightAndSend n'est pas attaché à SendSelectedObjectToUnity !");
-            }
-        }
-        else
-        {
-            Debug.LogError("Le GameObject SendSelectedObjectToUnity n'est pas assigné dans l'inspecteur !");
-        }
+        // SUPPRIMÉ: Initialisation de HighlightAndSend
 
         // Récupérer la référence de la caméra principale
         mainCamera = Camera.main;
@@ -160,7 +147,7 @@ public class CameraTargetSpecific : MonoBehaviour
 
     void Update()
     {
-      bool shouldShowSprites = IsCameraOnGlobalView();
+        bool shouldShowSprites = IsCameraOnGlobalView();
 
         // Toujours orienter les sprites vers la caméra et ajuster la taille selon la distance
         foreach (var entry in pinIconToOutlineMap)
@@ -179,7 +166,6 @@ public class CameraTargetSpecific : MonoBehaviour
                     float distanceToCamera = Vector3.Distance(pinIconObject.transform.position, mainCamera.transform.position);
                     AdjustSpriteSizeBasedOnDistance(pinIconObject, distanceToCamera);
                 }
-
             }
         }
 
@@ -236,14 +222,8 @@ public class CameraTargetSpecific : MonoBehaviour
                 // Lors d'un clic, déplacer la caméra vers la cible associée
                 if (Input.GetMouseButtonDown(0))
                 {
-                    if (highlightAndSend != null)
-                    {
-                        highlightAndSend.SendSelectedGameObject(outlineObject);
-                    }
-                    else
-                    {
-                        Debug.LogError("highlightAndSend n'est pas défini !");
-                    }
+                    // SUPPRIMÉ: Envoi vers HighlightAndSend
+                    Debug.Log("Objet sélectionné : " + outlineObject.name);
 
                     CameraTargetItem cameraTargetItem = dropdownManager.GetCameraTargetItemByOutlineObject(outlineObject);
                     if (cameraTargetItem != null)
@@ -287,7 +267,6 @@ public class CameraTargetSpecific : MonoBehaviour
                 lastOutlinedObject = null;
             }
         }
-
     }
 
     private bool IsCameraOnGlobalView()
