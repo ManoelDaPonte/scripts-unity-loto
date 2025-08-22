@@ -1,50 +1,47 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using System.Linq;
-using Newtonsoft.Json;
+using WiseTwin;
 
 public class RoboticArmTraining : MonoBehaviour
 {
-    [Header("UI References")]
+    [Header("📋 UI References")]
     public Canvas trainingCanvas;
     public GameObject trainingPanel;
     public Transform stepsList;
-    public GameObject stepPrefab;
     public Button closeButton;
+    public Button restartButton;
     
-    [Header("Step Item Prefab Components")]
-    public TextMeshProUGUI stepNumberText;
+    [Header("🎨 Enhanced UI (Optional)")]
+    public TextMeshProUGUI titleText;
+    public TextMeshProUGUI stepTitleText;
     public TextMeshProUGUI stepDescriptionText;
-    public Image stepStatusImage;
+    public TextMeshProUGUI stepCounterText;
+    public TextMeshProUGUI safetyInfoText;
+    public Slider progressBar;
     
-    [Header("Training Configuration")]
-    public List<TrainingStep> steps = new List<TrainingStep>();
-    
-    [Header("WiseTwin Integration")]
-    public bool useWiseTwinData = true;
-    private bool metadataLoaded = false;
+    [Header("🔧 Dependencies")]
+    public MetadataLoader metadataLoader;
+    public TrainingCompletionNotifier completionNotifier;
     
     [System.Serializable]
     public class TrainingStep
     {
-        public string description;
-        public string targetObjectName; // Nom de l'objet à cliquer
-        public bool completed = false;
-        
-        // Données supplémentaires pour l'extension future
+        public string stepId;
         public string title;
-        public string questionText;
-        public string[] questionOptions;
-        public int correctAnswer;
-        public string feedback;
-        public string incorrectFeedback;
+        public string description;
+        public string targetObjectName;
+        public string safetyWarning;
+        public string safetyConsequences;
+        public bool completed = false;
     }
+    
+    public List<TrainingStep> steps = new List<TrainingStep>();
     
     private int currentStepIndex = 0;
     private bool trainingActive = false;
-    private List<GameObject> stepUIElements = new List<GameObject>();
     private GameObjectSequenceController sequenceController;
     
     public static RoboticArmTraining Instance { get; private set; }
@@ -63,374 +60,320 @@ public class RoboticArmTraining : MonoBehaviour
     
     void Start()
     {
-        // Trouver le contrôleur de séquence
+        InitializeDependencies();
+        InitializeDefaultSteps();
+        LoadMetadata();
+        SetupUI();
+        
         sequenceController = FindFirstObjectByType<GameObjectSequenceController>();
         
-        // Cacher l'UI au début
         if (trainingPanel != null)
             trainingPanel.SetActive(false);
+    }
+    
+    private void InitializeDependencies()
+    {
+        if (metadataLoader == null)
+            metadataLoader = FindFirstObjectByType<MetadataLoader>();
+            
+        if (completionNotifier == null)
+            completionNotifier = FindFirstObjectByType<TrainingCompletionNotifier>();
+    }
+    
+    private void InitializeDefaultSteps()
+    {
+        steps.Clear();
         
-        // Charger les données selon la configuration
-        if (useWiseTwinData)
+        // Étapes de base (seront enrichies par les métadonnées)
+        string[] stepIds = { "commutateur", "demande-d-acces", "operateur-cle-acces-1", "cle-1", "poignee", "Lock", "porte" };
+        string[] defaultTitles = { 
+            "Étape 1: Commutateur", "Étape 2: Demande d'accès", "Étape 3: Clé opérateur", 
+            "Étape 4: Retrait clé", "Étape 5: Poignée LOTO", "Étape 6: Badge", "Étape 7: Ouverture porte" 
+        };
+        string[] defaultDescriptions = {
+            "Mettre le commutateur en manuel", "Faire une demande d'accès", "Tourner la clé en position 0",
+            "Enlever la clé", "Glisser la poignée LOTO", "Scanner le badge", "Ouvrir la porte"
+        };
+        
+        for (int i = 0; i < stepIds.Length; i++)
         {
-            LoadStepsFromWiseTwin();
+            steps.Add(new TrainingStep
+            {
+                stepId = stepIds[i],
+                title = defaultTitles[i],
+                description = defaultDescriptions[i],
+                targetObjectName = stepIds[i]
+            });
+        }
+    }
+    
+    private void LoadMetadata()
+    {
+        if (metadataLoader == null)
+        {
+            Debug.LogWarning("⚠️ Pas de MetadataLoader - utilisation des données par défaut");
+            return;
+        }
+        
+        if (metadataLoader.IsLoaded)
+        {
+            Debug.Log("📦 Métadonnées déjà chargées");
+            EnhanceStepsWithMetadata();
         }
         else
         {
-            InitializeSteps();
-            SetupUI();
+            Debug.Log("📦 En attente des métadonnées...");
+            metadataLoader.OnMetadataLoaded += OnMetadataLoaded;
         }
     }
     
-    private void LoadStepsFromWiseTwin()
+    private void OnMetadataLoaded(Dictionary<string, object> metadata)
     {
-        Debug.Log("[RoboticArmTraining] Tentative de chargement depuis WiseTwin...");
+        Debug.Log($"📦 Métadonnées reçues: {metadata?.Count} éléments");
+        EnhanceStepsWithMetadata();
+    }
+    
+    private void EnhanceStepsWithMetadata()
+    {
+        if (metadataLoader == null || !metadataLoader.IsLoaded) return;
         
-        if (MetadataLoader.Instance == null)
+        var metadata = metadataLoader.GetMetadata();
+        
+        // Chercher dans la section "unity" ou directement à la racine
+        Dictionary<string, object> stepsData = null;
+        
+        if (metadata.ContainsKey("unity"))
         {
-            Debug.LogWarning("[RoboticArmTraining] MetadataLoader.Instance non trouvé, retry dans 1s");
-            Invoke(nameof(RetryLoadStepsFromWiseTwin), 1f);
-            return;
+            stepsData = metadata["unity"] as Dictionary<string, object>;
+        }
+        else
+        {
+            stepsData = metadata;
         }
         
-        if (!MetadataLoader.Instance.IsLoaded)
+        if (stepsData == null) return;
+        
+        foreach (var step in steps)
         {
-            Debug.Log("[RoboticArmTraining] En attente du chargement des métadonnées...");
-            MetadataLoader.Instance.OnMetadataLoaded += OnWiseTwinDataLoaded;
-            MetadataLoader.Instance.OnLoadError += OnWiseTwinDataError;
-            return;
+            if (stepsData.ContainsKey(step.stepId))
+            {
+                LoadStepFromMetadata(step, stepsData[step.stepId] as Dictionary<string, object>);
+            }
         }
         
-        ParseWiseTwinData();
+        Debug.Log("✅ Étapes enrichies avec les métadonnées");
     }
     
-    private void RetryLoadStepsFromWiseTwin()
-    {
-        if (!metadataLoaded)
-        {
-            LoadStepsFromWiseTwin();
-        }
-    }
+    // private void LoadStepFromMetadata(TrainingStep step, Dictionary<string, object> data)
+    // {
+    //     if (data == null) return;
+        
+    //     // Charger les données simples
+    //     if (data.ContainsKey("title"))
+    //         step.title = data["title"].ToString();
+            
+    //     if (data.ContainsKey("description"))
+    //         step.description = data["description"].ToString();
+            
+    //     if (data.ContainsKey("safety_warning"))
+    //         step.safetyWarning = data["safety_warning"].ToString();
+            
+    //     if (data.ContainsKey("safety_consequences"))
+    //         step.safetyConsequences = data["safety_consequences"].ToString();
+    // }
     
-    private void OnWiseTwinDataLoaded(System.Collections.Generic.Dictionary<string, object> metadata)
-    {
-        Debug.Log("[RoboticArmTraining] Données WiseTwin reçues, parsing...");
-        ParseWiseTwinData();
-    }
-    
-    private void OnWiseTwinDataError(string error)
-    {
-        Debug.LogError($"[RoboticArmTraining] Erreur chargement WiseTwin: {error}");
-        Debug.Log("[RoboticArmTraining] Fallback vers les données par défaut");
-        InitializeSteps();
-        SetupUI();
-    }
-    
-    private void ParseWiseTwinData()
-    {
-        try
-        {
-            var unityData = MetadataLoader.Instance.GetUnityData();
-            Debug.Log($"[RoboticArmTraining] Unity data keys: {(unityData != null ? string.Join(", ", unityData.Keys) : "null")}");
-            
-            if (unityData == null || unityData.Count == 0)
-            {
-                Debug.LogWarning("[RoboticArmTraining] Aucune donnée Unity trouvée, utilisation des données par défaut");
-                InitializeSteps();
-                SetupUI();
-                return;
-            }
-            
-            steps.Clear();
-            
-            // Créer une liste temporaire pour trier par ordre
-            var tempSteps = new List<(TrainingStep step, int order)>();
-            
-            foreach (var kvp in unityData)
-            {
-                string objectId = kvp.Key;
-                Debug.Log($"[RoboticArmTraining] Processing object: {objectId}");
-                
-                var objectData = JsonConvert.DeserializeObject<Dictionary<string, object>>(
-                    JsonConvert.SerializeObject(kvp.Value));
-                
-                if (objectData.ContainsKey("step_info"))
-                {
-                    var stepInfo = JsonConvert.DeserializeObject<Dictionary<string, object>>(
-                        JsonConvert.SerializeObject(objectData["step_info"]));
-                    
-                    var step = new TrainingStep
-                    {
-                        title = stepInfo.ContainsKey("title") ? stepInfo["title"].ToString() : $"Étape {objectId}",
-                        description = stepInfo.ContainsKey("description") ? stepInfo["description"].ToString() : "Instruction non définie",
-                        targetObjectName = objectId
-                    };
-                    
-                    // Charger les questions si disponibles
-                    if (objectData.ContainsKey("question_1"))
-                    {
-                        var questionData = JsonConvert.DeserializeObject<Dictionary<string, object>>(
-                            JsonConvert.SerializeObject(objectData["question_1"]));
-                        
-                        step.questionText = questionData.ContainsKey("text") ? questionData["text"].ToString() : "";
-                        step.feedback = questionData.ContainsKey("feedback") ? questionData["feedback"].ToString() : "";
-                        step.incorrectFeedback = questionData.ContainsKey("incorrectFeedback") ? questionData["incorrectFeedback"].ToString() : "";
-                        
-                        if (questionData.ContainsKey("options"))
-                        {
-                            var optionsJson = JsonConvert.SerializeObject(questionData["options"]);
-                            step.questionOptions = JsonConvert.DeserializeObject<string[]>(optionsJson);
-                        }
-                        
-                        if (questionData.ContainsKey("correctAnswer"))
-                        {
-                            if (int.TryParse(questionData["correctAnswer"].ToString(), out int parsedCorrectAnswer))
-                            {
-                                step.correctAnswer = parsedCorrectAnswer;
-                            }
-                            else if (bool.TryParse(questionData["correctAnswer"].ToString(), out bool boolAnswer))
-                            {
-                                step.correctAnswer = boolAnswer ? 1 : 0;
-                            }
-                        }
-                    }
-                    
-                    int order = 999;
-                    if (stepInfo.ContainsKey("order"))
-                    {
-                        if (int.TryParse(stepInfo["order"].ToString(), out int parsedOrder))
-                        {
-                            order = parsedOrder;
-                        }
-                    }
-                    tempSteps.Add((step, order));
-                }
-            }
-            
-            // Trier par ordre et ajouter à la liste finale
-            var sortedSteps = tempSteps.OrderBy(x => x.order).ToList();
-            foreach (var (step, _) in sortedSteps)
-            {
-                steps.Add(step);
-            }
-            
-            metadataLoaded = true;
-            SetupUI();
-            
-            Debug.Log($"[RoboticArmTraining] {steps.Count} étapes chargées depuis WiseTwin");
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError($"[RoboticArmTraining] Erreur parsing données WiseTwin: {e.Message}");
-            InitializeSteps();
-            SetupUI();
-        }
-    }
-    
-    void InitializeSteps()
-    {
-        Debug.Log("[RoboticArmTraining] Chargement des étapes par défaut (hardcode)");
-        // Définir les étapes de la formation LOTO
-        steps.Clear();
-        steps.Add(new TrainingStep { description = "Mettre le commutateur en manuel", targetObjectName = "commutateur" });
-        steps.Add(new TrainingStep { description = "Faire une demande d'accès", targetObjectName = "demande-d-acces" });
-        steps.Add(new TrainingStep { description = "Tourner la clé opérateur position 0", targetObjectName = "operateur-cle-acces-1" });
-        steps.Add(new TrainingStep { description = "Enlever la clé et la garder", targetObjectName = "cle-1" });
-        steps.Add(new TrainingStep { description = "Glisser la poignée pour ouvrir", targetObjectName = "poignee" });
-        steps.Add(new TrainingStep { description = "S'identifier avec le badge", targetObjectName = "Lock" });
-        steps.Add(new TrainingStep { description = "Ouvrir la porte et entrer", targetObjectName = "porte" });
-    }
-    
-    void SetupUI()
+    private void SetupUI()
     {
         if (closeButton != null)
-        {
             closeButton.onClick.AddListener(CloseTraining);
-        }
-        
-        CreateStepsUI();
-    }
-    
-    void CreateStepsUI()
-    {
-        // Nettoyer les anciens éléments
-        foreach (var element in stepUIElements)
+            
+        if (restartButton != null)
+            restartButton.onClick.AddListener(RestartTraining);
+            
+        if (titleText != null)
+            titleText.text = "Formation LOTO - Accès Zone Robot";
+            
+        if (progressBar != null)
         {
-            if (element != null)
-                Destroy(element);
+            progressBar.minValue = 0;
+            progressBar.maxValue = 1;
+            progressBar.value = 0;
         }
-        stepUIElements.Clear();
-        
-        // Créer les éléments UI pour chaque étape
-        for (int i = 0; i < steps.Count; i++)
-        {
-            GameObject stepElement = CreateStepElement(i);
-            stepUIElements.Add(stepElement);
-        }
-        
-        UpdateStepsDisplay();
-    }
-    
-    GameObject CreateStepElement(int index)
-    {
-        GameObject stepElement;
-        
-        if (stepPrefab != null)
-        {
-            stepElement = Instantiate(stepPrefab, stepsList);
-        }
-        else
-        {
-            // Créer un élément simple
-            stepElement = new GameObject($"Step_{index}");
-            stepElement.transform.SetParent(stepsList);
-            
-            // Ajouter RectTransform
-            RectTransform rect = stepElement.AddComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(350, 50);
-            
-            // Background
-            Image bg = stepElement.AddComponent<Image>();
-            bg.color = new Color(0.9f, 0.9f, 0.9f, 0.8f);
-            
-            // Layout Element pour le scroll
-            LayoutElement layout = stepElement.AddComponent<LayoutElement>();
-            layout.minHeight = 50;
-            
-            // Numéro de l'étape
-            GameObject numberObj = new GameObject("Number");
-            numberObj.transform.SetParent(stepElement.transform);
-            TextMeshProUGUI numberText = numberObj.AddComponent<TextMeshProUGUI>();
-            numberText.text = (index + 1).ToString();
-            numberText.fontSize = 16;
-            numberText.color = Color.black;
-            numberText.alignment = TextAlignmentOptions.Center;
-            
-            RectTransform numberRect = numberText.GetComponent<RectTransform>();
-            numberRect.anchorMin = new Vector2(0, 0);
-            numberRect.anchorMax = new Vector2(0.15f, 1);
-            numberRect.offsetMin = Vector2.zero;
-            numberRect.offsetMax = Vector2.zero;
-            
-            // Description
-            GameObject descObj = new GameObject("Description");
-            descObj.transform.SetParent(stepElement.transform);
-            TextMeshProUGUI descText = descObj.AddComponent<TextMeshProUGUI>();
-            descText.text = steps[index].description;
-            descText.fontSize = 14;
-            descText.color = Color.black;
-            
-            RectTransform descRect = descText.GetComponent<RectTransform>();
-            descRect.anchorMin = new Vector2(0.15f, 0);
-            descRect.anchorMax = new Vector2(0.85f, 1);
-            descRect.offsetMin = new Vector2(5, 5);
-            descRect.offsetMax = new Vector2(-5, -5);
-            
-            // Status (cercle coloré)
-            GameObject statusObj = new GameObject("Status");
-            statusObj.transform.SetParent(stepElement.transform);
-            Image statusImage = statusObj.AddComponent<Image>();
-            statusImage.color = Color.gray;
-            
-            RectTransform statusRect = statusImage.GetComponent<RectTransform>();
-            statusRect.anchorMin = new Vector2(0.85f, 0.3f);
-            statusRect.anchorMax = new Vector2(0.95f, 0.7f);
-            statusRect.offsetMin = Vector2.zero;
-            statusRect.offsetMax = Vector2.zero;
-        }
-        
-        return stepElement;
     }
     
     public void StartTraining()
     {
-        Debug.Log("Démarrage de la formation bras robotique");
+        Debug.Log("🎓 Démarrage de la formation");
         
         trainingActive = true;
         currentStepIndex = 0;
         
-        // NOUVEAU: Désactiver le collider du parent pour permettre les clics sur les enfants
-        ControllerRoboticArmTrigger trigger = FindFirstObjectByType<ControllerRoboticArmTrigger>();
-        if (trigger != null)
-        {
-            Collider parentCollider = trigger.GetComponent<Collider>();
-            if (parentCollider != null)
-            {
-                parentCollider.enabled = false;
-                Debug.Log("🔧 Collider parent désactivé pour permettre les clics sur les objets de séquence");
-            }
-        }
-        
-        // Réinitialiser toutes les étapes
+        // Réinitialiser
         foreach (var step in steps)
-        {
             step.completed = false;
-        }
         
         // Afficher l'UI
         if (trainingPanel != null)
             trainingPanel.SetActive(true);
         
-        UpdateStepsDisplay();
+        UpdateUI();
         
-        // Démarrer la séquence Unity si disponible
+        // Démarrer la séquence
         if (sequenceController != null)
-        {
             sequenceController.StartTraining();
-        }
+            
+        // Désactiver le collider parent
+        DisableParentCollider();
     }
     
     public void OnObjectClicked(string objectName)
     {
-        if (!trainingActive) return;
+        if (!trainingActive || currentStepIndex >= steps.Count) return;
         
-        Debug.Log($"Objet cliqué dans la formation : {objectName}");
+        TrainingStep currentStep = steps[currentStepIndex];
         
+        if (currentStep.targetObjectName == objectName)
+        {
+            // Bonne action
+            Debug.Log($"✅ Étape {currentStepIndex + 1} validée");
+            
+            currentStep.completed = true;
+            currentStepIndex++;
+            
+            if (currentStepIndex >= steps.Count)
+            {
+                CompleteTraining();
+            }
+            else
+            {
+                UpdateUI();
+            }
+        }
+        else
+        {
+            // Mauvaise action
+            Debug.Log($"❌ Mauvaise action ! Redémarrage...");
+            RestartTraining();
+        }
+    }
+    
+    private void UpdateUI()
+    {
         if (currentStepIndex < steps.Count)
         {
             TrainingStep currentStep = steps[currentStepIndex];
             
-            if (currentStep.targetObjectName == objectName)
-            {
-                // Bonne action !
-                Debug.Log($"✓ Étape {currentStepIndex + 1} validée : {currentStep.description}");
+            // Mettre à jour les textes
+            if (stepTitleText != null)
+                stepTitleText.text = currentStep.title;
                 
-                currentStep.completed = true;
-                currentStepIndex++;
+            if (stepDescriptionText != null)
+                stepDescriptionText.text = currentStep.description;
                 
-                if (currentStepIndex >= steps.Count)
-                {
-                    CompleteTraining();
-                }
-                else
-                {
-                    UpdateStepsDisplay();
-                }
-            }
-            else
-            {
-                // Mauvaise action - retour au début
-                Debug.Log($"✗ Mauvaise action ! Attendu: {currentStep.targetObjectName}, reçu: {objectName}");
-                RestartTraining();
-            }
+            if (stepCounterText != null)
+                stepCounterText.text = $"Étape {currentStepIndex + 1} / {steps.Count}";
+            
+            // Informations de sécurité
+            UpdateSafetyInfo(currentStep);
+        }
+        
+        // Barre de progression
+        if (progressBar != null && steps.Count > 0)
+        {
+            progressBar.value = (float)currentStepIndex / steps.Count;
         }
     }
     
-    void RestartTraining()
+    // private void UpdateSafetyInfo(TrainingStep step)
+    // {
+    //     if (safetyInfoText == null) return;
+        
+    //     string safetyText = "";
+        
+    //     if (!string.IsNullOrEmpty(step.safetyWarning))
+    //         safetyText += $"⚠️ ATTENTION: {step.safetyWarning}\n";
+            
+    //     if (!string.IsNullOrEmpty(step.safetyConsequences))
+    //         safetyText += $"🚨 RISQUES: {step.safetyConsequences}";
+        
+    //     safetyInfoText.text = safetyText;
+    //     safetyInfoText.gameObject.SetActive(!string.IsNullOrEmpty(safetyText));
+        
+    //     Debug.Log($"🛡️ Safety info: {safetyText}");
+    // }
+    
+    /// <summary>
+    /// Réinitialise tous les objets de la séquence à leur état initial
+    /// </summary>
+    private void ResetAllObjectsToInitialState()
     {
-        Debug.Log("Redémarrage de la formation");
+        Debug.Log("🔄 Réinitialisation de tous les objets à leur état initial...");
         
-        currentStepIndex = 0;
-        
-        // Réinitialiser toutes les étapes
-        foreach (var step in steps)
+        // Réinitialiser le commutateur
+        var switchCommutateur = FindFirstObjectByType<SwitchMoverCommutateur>();
+        if (switchCommutateur != null)
         {
-            step.completed = false;
+            switchCommutateur.ResetSwitch();
+            Debug.Log("✅ Commutateur réinitialisé");
         }
         
-        UpdateStepsDisplay();
+        // Réinitialiser la clé d'accès
+        var switchCle = FindFirstObjectByType<SwitchMoverCleDAcces>();
+        if (switchCle != null)
+        {
+            switchCle.ResetSwitch();
+            Debug.Log("✅ Clé d'accès réinitialisée");
+        }
         
-        // Redémarrer la séquence Unity
+        // Réinitialiser la clé (RemoveKeyOnClick) - la remettre en position visible
+        var removeKey = FindFirstObjectByType<RemoveKeyOnClick>();
+        if (removeKey != null)
+        {
+            removeKey.ResetPosition();
+            Debug.Log("✅ Clé réinitialisée");
+        }
+        
+        // Réinitialiser la poignée LOTO
+        var poigneeLOTO = FindFirstObjectByType<PoigneeLOTO>();
+        if (poigneeLOTO != null)
+        {
+            poigneeLOTO.ResetPoignee();
+            Debug.Log("✅ Poignée LOTO réinitialisée");
+        }
+        
+        // Réinitialiser la porte
+        var porteRotation = FindFirstObjectByType<PorteRotation>();
+        if (porteRotation != null)
+        {
+            porteRotation.ResetRotation();
+            Debug.Log("✅ Porte réinitialisée");
+        }
+        
+        // Réinitialiser le badge/consignation si nécessaire
+        var consignation = FindFirstObjectByType<Consignation>();
+        if (consignation != null && consignation.GetComponent<Renderer>() != null)
+        {
+            // Si le composant Consignation a une méthode Reset, l'appeler
+            // Sinon, s'assurer qu'il est visible
+            consignation.GetComponent<Renderer>().enabled = true;
+            Debug.Log("✅ Badge/Consignation réinitialisé");
+        }
+        
+        Debug.Log("🎯 Réinitialisation terminée - tous les objets sont revenus à leur état initial");
+    }
+    
+    public void RestartTraining()
+    {
+        currentStepIndex = 0;
+        
+        foreach (var step in steps)
+            step.completed = false;
+            
+        // Réinitialiser tous les objets à leur état initial
+        ResetAllObjectsToInitialState();
+            
+        UpdateUI();
+        
         if (sequenceController != null)
         {
             sequenceController.StopTutorial();
@@ -438,111 +381,261 @@ public class RoboticArmTraining : MonoBehaviour
         }
     }
     
-    void UpdateStepsDisplay()
+    private void CompleteTraining()
     {
-        for (int i = 0; i < stepUIElements.Count && i < steps.Count; i++)
-        {
-            GameObject stepElement = stepUIElements[i];
-            TrainingStep step = steps[i];
-            
-            if (stepElement != null)
-            {
-                // Mettre à jour le background
-                Image bg = stepElement.GetComponent<Image>();
-                if (bg != null)
-                {
-                    if (step.completed)
-                    {
-                        bg.color = new Color(0.6f, 1f, 0.6f, 0.9f); // Vert
-                    }
-                    else if (i == currentStepIndex)
-                    {
-                        bg.color = new Color(1f, 1f, 0.6f, 0.9f); // Jaune
-                    }
-                    else
-                    {
-                        bg.color = new Color(0.9f, 0.9f, 0.9f, 0.8f); // Gris
-                    }
-                }
-                
-                // Mettre à jour le statut (cercle coloré)
-                Transform statusTransform = stepElement.transform.Find("Status");
-                if (statusTransform != null)
-                {
-                    Image statusImage = statusTransform.GetComponent<Image>();
-                    if (statusImage != null)
-                    {
-                        if (step.completed)
-                        {
-                            statusImage.color = Color.green;
-                        }
-                        else if (i == currentStepIndex)
-                        {
-                            statusImage.color = Color.yellow;
-                        }
-                        else
-                        {
-                            statusImage.color = Color.gray;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    void CompleteTraining()
-    {
-        Debug.Log("🎉 Formation terminée avec succès !");
+        Debug.Log("🎉 Formation terminée !");
         
         trainingActive = false;
-        UpdateStepsDisplay();
         
-        // Arrêter la séquence Unity
-        if (sequenceController != null)
+        // UI de fin
+        if (stepTitleText != null)
+            stepTitleText.text = "🎉 Formation Terminée !";
+            
+        if (stepDescriptionText != null)
+            stepDescriptionText.text = "Félicitations ! Formation LOTO réussie.";
+            
+        if (stepCounterText != null)
+            stepCounterText.text = "TERMINÉ";
+            
+        if (progressBar != null)
+            progressBar.value = 1.0f;
+            
+        if (safetyInfoText != null)
+            safetyInfoText.gameObject.SetActive(false);
+        
+        // Notification de completion
+        if (completionNotifier != null)
         {
-            sequenceController.StopTutorial();
+            Debug.Log("📡 Envoi notification de fin...");
+            completionNotifier.FormationCompleted();
         }
         
-        // Optionnel : fermer l'UI après quelques secondes
-        Invoke(nameof(CloseTraining), 3f);
+        if (sequenceController != null)
+            sequenceController.StopTutorial();
+            
+        EnableParentCollider();
+        
+        // Fermeture automatique après 5 secondes
+        Invoke(nameof(CloseTraining), 5f);
     }
     
     public void CloseTraining()
     {
-        Debug.Log("Fermeture de la formation");
-        
         trainingActive = false;
-        
-        // NOUVEAU: Réactiver le collider du parent
-        ControllerRoboticArmTrigger trigger = FindFirstObjectByType<ControllerRoboticArmTrigger>();
-        if (trigger != null)
-        {
-            Collider parentCollider = trigger.GetComponent<Collider>();
-            if (parentCollider != null)
-            {
-                parentCollider.enabled = true;
-                Debug.Log("✅ Collider parent réactivé");
-            }
-        }
         
         if (trainingPanel != null)
             trainingPanel.SetActive(false);
-        
+            
         if (sequenceController != null)
-        {
             sequenceController.StopTutorial();
+            
+        EnableParentCollider();
+    }
+    
+    private void DisableParentCollider()
+    {
+        var trigger = FindFirstObjectByType<ControllerRoboticArmTrigger>();
+        if (trigger != null)
+        {
+            var collider = trigger.GetComponent<Collider>();
+            if (collider != null)
+                collider.enabled = false;
         }
     }
     
-    private void OnDestroy()
+    private void EnableParentCollider()
     {
-        CancelInvoke();
-        
-        // Nettoyer les événements WiseTwin
-        if (MetadataLoader.Instance != null)
+        var trigger = FindFirstObjectByType<ControllerRoboticArmTrigger>();
+        if (trigger != null)
         {
-            MetadataLoader.Instance.OnMetadataLoaded -= OnWiseTwinDataLoaded;
-            MetadataLoader.Instance.OnLoadError -= OnWiseTwinDataError;
+            var collider = trigger.GetComponent<Collider>();
+            if (collider != null)
+                collider.enabled = true;
         }
     }
+    
+    // Debug helper
+    [ContextMenu("🔍 Debug Current Step")]
+    public void DebugCurrentStep()
+    {
+        if (currentStepIndex < steps.Count)
+        {
+            var step = steps[currentStepIndex];
+            Debug.Log($"📊 Étape actuelle: {step.stepId}");
+            Debug.Log($"📊 Titre: {step.title}");
+            Debug.Log($"📊 Description: {step.description}");
+            Debug.Log($"📊 Safety Warning: {step.safetyWarning}");
+            Debug.Log($"📊 Safety Consequences: {step.safetyConsequences}");
+        }
+    }
+
+
+    // 🔍 ÉTAPE 1: Ajoutez ces logs dans LoadStepFromMetadata pour voir ce qui arrive
+
+private void LoadStepFromMetadata(TrainingStep step, Dictionary<string, object> data)
+{
+    if (data == null) 
+    {
+        Debug.LogWarning($"❌ Pas de données pour {step.stepId}");
+        return;
+    }
+    
+    Debug.Log($"🔍 === CHARGEMENT {step.stepId.ToUpper()} ===");
+    Debug.Log($"🔍 Données disponibles: {string.Join(", ", data.Keys)}");
+    
+    // Charger les données simples
+    if (data.ContainsKey("title"))
+    {
+        step.title = data["title"].ToString();
+        Debug.Log($"✅ Titre chargé: {step.title}");
+    }
+        
+    if (data.ContainsKey("description"))
+    {
+        step.description = data["description"].ToString();
+        Debug.Log($"✅ Description chargée: {step.description}");
+    }
+        
+    if (data.ContainsKey("safety_warning"))
+    {
+        step.safetyWarning = data["safety_warning"].ToString();
+        Debug.Log($"🛡️ Safety Warning chargé: {step.safetyWarning}");
+    }
+    else
+    {
+        Debug.LogWarning($"❌ Pas de 'safety_warning' pour {step.stepId}");
+    }
+        
+    if (data.ContainsKey("safety_consequences"))
+    {
+        step.safetyConsequences = data["safety_consequences"].ToString();
+        Debug.Log($"🛡️ Safety Consequences chargé: {step.safetyConsequences}");
+    }
+    else
+    {
+        Debug.LogWarning($"❌ Pas de 'safety_consequences' pour {step.stepId}");
+    }
+    
+    Debug.Log($"🔍 === FIN CHARGEMENT {step.stepId.ToUpper()} ===");
 }
+
+// 🔍 ÉTAPE 2: Modifiez UpdateSafetyInfo pour forcer l'affichage et débugger
+
+private void UpdateSafetyInfo(TrainingStep step)
+{
+    Debug.Log($"🔍 === UPDATE SAFETY INFO ===");
+    Debug.Log($"🔍 Step ID: {step.stepId}");
+    Debug.Log($"🔍 SafetyInfoText null? {safetyInfoText == null}");
+    
+    if (safetyInfoText == null) 
+    {
+        Debug.LogError("❌ safetyInfoText est NULL ! Vérifiez l'assignation dans l'inspector !");
+        return;
+    }
+    
+    Debug.Log($"🔍 Safety Warning: '{step.safetyWarning}'");
+    Debug.Log($"🔍 Safety Consequences: '{step.safetyConsequences}'");
+    Debug.Log($"🔍 Warning vide? {string.IsNullOrEmpty(step.safetyWarning)}");
+    Debug.Log($"🔍 Consequences vide? {string.IsNullOrEmpty(step.safetyConsequences)}");
+    
+    string safetyText = "";
+    
+    if (!string.IsNullOrEmpty(step.safetyWarning))
+        safetyText += $"⚠️ ATTENTION: {step.safetyWarning}\n";
+        
+    if (!string.IsNullOrEmpty(step.safetyConsequences))
+        safetyText += $"🚨 RISQUES: {step.safetyConsequences}";
+    
+    Debug.Log($"🔍 Texte final: '{safetyText}'");
+    Debug.Log($"🔍 Texte vide? {string.IsNullOrEmpty(safetyText)}");
+    
+    // FORCER l'affichage pour test
+    if (string.IsNullOrEmpty(safetyText))
+    {
+        safetyText = $"🧪 TEST FORCÉ - Étape: {step.stepId}\nWarning: '{step.safetyWarning}'\nConsequences: '{step.safetyConsequences}'";
+        Debug.Log($"🔍 Texte de test forcé: {safetyText}");
+    }
+    
+    safetyInfoText.text = safetyText;
+    safetyInfoText.gameObject.SetActive(true); // FORCER l'activation
+    
+    Debug.Log($"🔍 GameObject actif? {safetyInfoText.gameObject.activeSelf}");
+    Debug.Log($"🔍 Texte assigné dans le composant: '{safetyInfoText.text}'");
+    Debug.Log($"🔍 === FIN UPDATE SAFETY INFO ===");
+}
+
+// 🔍 ÉTAPE 3: Ajoutez cette méthode pour debug les métadonnées brutes
+
+[ContextMenu("🔍 Debug Metadata Raw")]
+public void DebugMetadataRaw()
+{
+    if (metadataLoader == null)
+    {
+        Debug.LogError("❌ MetadataLoader null");
+        return;
+    }
+    
+    if (!metadataLoader.IsLoaded)
+    {
+        Debug.LogWarning("⚠️ Métadonnées pas chargées");
+        return;
+    }
+    
+    var metadata = metadataLoader.GetMetadata();
+    Debug.Log($"📦 === METADATA RAW DEBUG ===");
+    Debug.Log($"📦 Total keys: {metadata.Count}");
+    
+    foreach (var kvp in metadata)
+    {
+        Debug.Log($"📦 Key: {kvp.Key} | Type: {kvp.Value?.GetType()?.Name}");
+    }
+    
+    // Test spécifique commutateur
+    if (metadata.ContainsKey("unity"))
+    {
+        var unity = metadata["unity"] as Dictionary<string, object>;
+        if (unity?.ContainsKey("commutateur") == true)
+        {
+            var comm = unity["commutateur"] as Dictionary<string, object>;
+            Debug.Log($"📦 Commutateur keys: {string.Join(", ", comm.Keys)}");
+            
+            if (comm.ContainsKey("safety_warning"))
+            {
+                Debug.Log($"📦 Safety warning trouvé: {comm["safety_warning"]}");
+            }
+        }
+    }
+    else if (metadata.ContainsKey("commutateur"))
+    {
+        var comm = metadata["commutateur"] as Dictionary<string, object>;
+        Debug.Log($"📦 Commutateur direct keys: {string.Join(", ", comm.Keys)}");
+    }
+    
+    Debug.Log($"📦 === FIN METADATA RAW DEBUG ===");
+}
+
+// 🔍 ÉTAPE 4: Ajoutez cette méthode pour debug l'état actuel des steps
+
+[ContextMenu("🔍 Debug All Steps")]
+public void DebugAllSteps()
+{
+    Debug.Log($"🔍 === DEBUG TOUTES LES ÉTAPES ===");
+    Debug.Log($"🔍 Nombre d'étapes: {steps.Count}");
+    
+    for (int i = 0; i < steps.Count; i++)
+    {
+        var step = steps[i];
+        Debug.Log($"🔍 --- ÉTAPE {i} ---");
+        Debug.Log($"🔍 ID: {step.stepId}");
+        Debug.Log($"🔍 Titre: {step.title}");
+        Debug.Log($"🔍 Description: {step.description}");
+        Debug.Log($"🔍 Safety Warning: '{step.safetyWarning}'");
+        Debug.Log($"🔍 Safety Consequences: '{step.safetyConsequences}'");
+        Debug.Log($"🔍 Warning vide? {string.IsNullOrEmpty(step.safetyWarning)}");
+        Debug.Log($"🔍 Consequences vide? {string.IsNullOrEmpty(step.safetyConsequences)}");
+    }
+    
+    Debug.Log($"🔍 === FIN DEBUG ÉTAPES ===");
+}
+}
+

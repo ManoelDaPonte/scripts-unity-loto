@@ -43,7 +43,7 @@ public class TestCompletionKey : MonoBehaviour
         
         if (completionNotifier != null)
         {
-            completionNotifier.NotifyTrainingCompleted();
+            completionNotifier.FormationCompleted();
         }
         else
         {
@@ -60,7 +60,10 @@ public class TestCompletionKey : MonoBehaviour
         
         if (completionNotifier != null)
         {
-            GUILayout.Label($"✅ Notifier: {completionNotifier.ProjectName}");
+            string projectName = Application.productName;
+            if (string.IsNullOrEmpty(projectName))
+                projectName = "Formation Unity";
+            GUILayout.Label($"✅ Notifier: {projectName}");
         }
         else
         {
